@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-httprequest
+spec:
+  schedule: "*/2 * * * *"
+  # Default successfulJobsHistoryLimit = 3
+  successfulJobsHistoryLimit: 5
+  # Default failedJobsHistoryLimit = 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: job-httprequest
+            image: #{ContainerRegistry}#/#{ContainerRepository}#:#{BuildId}#
+            env:
+            - name: EndpointRequest
+              value: "https://baconipsum.com/api/?type=meat-and-filler&paras=2&format=text"
+          restartPolicy: OnFailure

@@ -1,0 +1,75 @@
+name: kubernetes-ci-cd
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CONTAINER_REPOSITORY: cron-job-httprequest
+  KUBERNETES_YAML_DIR: kubernetes
+  WORKLOAD_DEFINITION: cronjob-notificacao-http.yaml
+  NAMESPACE_JOB: job-testes-githubactions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login no Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ secrets.CONTAINER_REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Executar build da aplicacao
+        working-directory: src/ConsoleAppJobHttpRequest
+        run: docker build . -t ${{ secrets.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}:${{ github.run_number }}
+
+      - name: Executar imagens apos build
+        run: docker images
+
+      - name: Efetuar push da imagem no Container Registry
+        run: docker push ${{ secrets.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}:${{ github.run_number }}
+
+  deployment:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Exibir conteudo do YAML com a definicao do CronJob
+        run: cat ${{ env.KUBERNETES_YAML_DIR }}/${{ env.WORKLOAD_DEFINITION }}
+
+      - name: Atualizar YAML com a definicao do CronJob
+        uses: cschleiden/replace-tokens@v1
+        with:
+          files: '["${{ env.KUBERNETES_YAML_DIR }}/${{ env.WORKLOAD_DEFINITION }}"]'
+        env:
+          ContainerRegistry: ${{ secrets.CONTAINER_REGISTRY }}
+          ContainerRepository: ${{ env.CONTAINER_REPOSITORY }}
+          BuildId: ${{ github.run_number }}
+
+      - name: Exibir conteudo do YAML apos replaces
+        run: cat ${{ env.KUBERNETES_YAML_DIR }}/${{ env.WORKLOAD_DEFINITION }}
+
+      - name: Kubernetes Set Context
+        uses: Azure/k8s-set-context@v3.0
+        with:
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+
+      - name: Exibir namespaces existentes
+        run: kubectl get namespaces
+
+      - name: Aplicar YAML para execucao do CronJob
+        run: kubectl apply -f ${{ env.KUBERNETES_YAML_DIR }}/${{ env.WORKLOAD_DEFINITION }} -n ${{ env.NAMESPACE_JOB }}
+
+      - name: Aguardar atualizacao do CronJob
+        run: sleep 15s
+
+      - name: Exibir status do CronJob
+        run: kubectl get cronjobs -n ${{ env.NAMESPACE_JOB }}
